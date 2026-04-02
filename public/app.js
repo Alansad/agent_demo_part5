@@ -292,6 +292,7 @@ async function boot() {
         maxAttempts: Number($("maxAttempts").value),
         backoffMs: Number($("backoffMs").value),
         debug: $("debug").value === "true",
+        failOnceAssignee: $("failOnceAssignee").value || undefined,
       };
 
       clearOutput();

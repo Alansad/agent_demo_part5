@@ -47,6 +47,13 @@ npm run web
 npm run dev
 ```
 
+CLI 实验参数（可选）：
+
+```bash
+# 注入“失败一次”，用于观察重试/阻塞
+npm run dev -- --failOnceAssignee agent_product
+```
+
 想换场景（可选）：
 
 ```bash
@@ -64,6 +71,10 @@ npm run dev -- --debug true
 # 或者用环境变量
 LLM_DEBUG=true npm run dev
 ```
+
+## 实验式学习（推荐）
+
+从“看效果 → 改一行 → 再观察差异”的方式学最快：`docs/learning-labs.md`。
 
 ## 技术方案（详细）
 

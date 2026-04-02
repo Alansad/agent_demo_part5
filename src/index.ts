@@ -50,6 +50,7 @@ const traceFile = kv.get("traceFile"); // e.g. trace.json
 const outputFile = kv.get("outputFile"); // e.g. report.md
 const viz = (kv.get("viz") ?? "false") === "true";
 const maxTasks = toInt(kv.get("maxTasks"), 8);
+const failOnceAssignee = kv.get("failOnceAssignee"); // e.g. agent_product
 
 let apiKey = kv.get("apiKey") ?? process.env.ANTHROPIC_API_KEY ?? "";
 let authToken = process.env.ANTHROPIC_AUTH_TOKEN ?? "";
@@ -96,7 +97,13 @@ const plan = await planner.createPlan({ goal, context, maxTasks });
 const tasks = plan.tasks;
 
 const agents = createDefaultRoleAgents(llm);
-const { final, results, trace } = await runWithLangGraph({ goal, tasks, agents, config });
+const { final, results, trace } = await runWithLangGraph({
+  goal,
+  tasks,
+  agents,
+  config,
+  shared: failOnceAssignee ? { failOnceAssignee } : undefined,
+});
 
 console.log(final);
 

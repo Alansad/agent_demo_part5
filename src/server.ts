@@ -17,6 +17,7 @@ const RunRequestSchema = z.object({
   maxAttempts: z.number().int().min(1).max(5).optional(),
   backoffMs: z.number().int().min(0).max(30_000).optional(),
   debug: z.boolean().optional(),
+  failOnceAssignee: z.string().optional(),
 });
 
 function requiredEnv(name: string): string {
@@ -210,6 +211,7 @@ app.post("/api/run/stream", async (req: Request, res: Response) => {
       tasks: plan.tasks,
       agents,
       config,
+      shared: body.failOnceAssignee ? { failOnceAssignee: body.failOnceAssignee } : undefined,
       onTaskResult: (r) => {
         taskResults.push(r);
         sseWrite(res, "task_result", r);

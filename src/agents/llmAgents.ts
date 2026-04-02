@@ -131,6 +131,18 @@ export class LlmWorkerAgent implements Agent {
   ) {}
 
   async run(task: TaskSpec, ctx: AgentContext): Promise<Omit<TaskResult, "startedAt" | "finishedAt">> {
+    // Fault-injection hook for learning/debugging:
+    // - set ctx.shared.failOnceAssignee = this.id to make the first attempt fail
+    // - orchestrator retry should kick in and you can observe it in the UI/trace
+    const failOnceAssignee = (ctx.shared as any)?.failOnceAssignee;
+    if (typeof failOnceAssignee === "string" && failOnceAssignee === this.id) {
+      const key = `__failedOnce:${this.id}`;
+      if ((ctx.shared as any)[key] !== true) {
+        (ctx.shared as any)[key] = true;
+        throw new Error(`Injected failure (fail-once) for ${this.id}`);
+      }
+    }
+
     const resultsSoFar = Array.isArray(ctx.resultsSoFar) ? ctx.resultsSoFar : [];
     const contextBrief = resultsSoFar
       .map((r) => {

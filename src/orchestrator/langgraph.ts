@@ -181,9 +181,7 @@ export async function runWithLangGraph(params: {
     const agent = agentById.get(task.assignee);
     const startedAt = Date.now();
 
-    const startedEv: TraceEvent = { type: "task_started", at: startedAt, taskId: task.id, assignee: task.assignee };
-    params.onTraceEvent?.(startedEv);
-    const baseTrace: TraceEvent[] = [startedEv];
+    const baseTrace: TraceEvent[] = [];
 
     if (!agent) {
       const finishedAt = Date.now();
@@ -214,6 +212,16 @@ export async function runWithLangGraph(params: {
     try {
       const out = await pRetry(
         async (attempt) => {
+          const ev: TraceEvent = {
+            type: "task_started",
+            at: Date.now(),
+            taskId: task.id,
+            assignee: task.assignee,
+            attempt,
+          };
+          params.onTraceEvent?.(ev);
+          baseTrace.push(ev);
+
           const value = await pTimeout(agent.run(task, ctx), {
             milliseconds: params.config.taskTimeoutMs,
             message: `Task ${task.id} timed out after ${params.config.taskTimeoutMs}ms`,
@@ -225,6 +233,21 @@ export async function runWithLangGraph(params: {
           factor: 1,
           minTimeout: params.config.retry.backoffMs,
           maxTimeout: params.config.retry.backoffMs,
+          onFailedAttempt: (err: unknown) => {
+            const anyErr = err as any;
+            const attempt = anyErr?.attemptNumber as number | undefined;
+            const message = anyErr instanceof Error ? anyErr.message : String(anyErr?.message ?? anyErr);
+            const ev: TraceEvent = {
+              type: "task_failed",
+              at: Date.now(),
+              taskId: task.id,
+              assignee: task.assignee,
+              attempt,
+              error: message,
+            };
+            params.onTraceEvent?.(ev);
+            baseTrace.push(ev);
+          },
         },
       );
 
