@@ -1,6 +1,6 @@
-# Week 9–10 多 Agent 协作 Demo（TypeScript + Anthropic）
+# Week 9–10 多 Agent 协作 Demo（TypeScript + Anthropic + LangGraph）
 
-这是一份“可运行”的学习工程：用 **真实 LLM（Anthropic SDK / Messages API）** + **LangGraph.js（@langchain/langgraph）** 驱动 **主从 Agent**，把一个真实场景目标拆解为多任务，分发给不同角色（产品 / 前端 / 测试 / 文档 / 主控汇总）执行，最后统一汇总输出，并附带一份可用于前端可视化的 `TraceEvent`。
+这是一份“可运行”的学习工程：用 **真实 LLM（Anthropic Messages API 兼容）** + **LangGraph.js（@langchain/langgraph）** 驱动 **主从 Agent**，把一个真实场景目标拆解为多任务，分发给不同角色（产品 / 前端 / 测试 / 文档 / 主控汇总）执行，最后统一汇总输出，并在 Web 页面里流式展示执行过程（Plan/时间轴/报告/Trace）。 
 
 ## 你将学会什么（对应 plan.md 的 Week 9–10）
 
@@ -22,11 +22,26 @@ npm i
 cp .env.example .env
 # 然后编辑 .env，填入：
 # - ANTHROPIC_API_KEY
+# - （可选）ANTHROPIC_AUTH_TOKEN（Bearer）
 # - ANTHROPIC_MODEL
 # （可选）ANTHROPIC_BASE_URL
 ```
 
-3) CLI 运行（默认场景：`frontend-agent-mvp`）
+常见场景：如果你使用“第三方 Anthropic 兼容网关”（例如火山方舟），通常需要设置 `ANTHROPIC_BASE_URL`；部分网关使用 Bearer 鉴权，则设置 `ANTHROPIC_AUTH_TOKEN`。
+
+3) Web 页面演示（推荐，流式展示过程）
+
+```bash
+npm run web
+```
+
+打开终端输出的地址（默认 `http://127.0.0.1:8787`），在页面里点击“运行（流式）”即可看到：
+- Planner 生成的任务计划（Plan）
+- 多 Agent 结果泳道时间轴（实时更新）
+- 最终报告（Final）
+- Trace（调试事件流，实时更新）
+
+4) CLI 运行（可选，默认场景：`frontend-agent-mvp`）
 
 ```bash
 npm run dev
@@ -39,18 +54,6 @@ npm run dev -- --scenario ecommerce-feature
 npm run dev -- --scenario design-system
 npm run dev -- --listScenarios true
 ```
-
-4) 前端页面演示（推荐）
-
-```bash
-npm run web
-```
-
-然后打开终端输出的 `http://localhost:8787`，在页面里点击“运行”即可看到：
-- Planner 生成的任务计划（Plan）
-- 多 Agent 结果泳道时间轴（实时更新）
-- 最终报告（Final）
-- Trace（调试事件流，实时更新）
 
 排查网关兼容性（推荐先打开）：
 
@@ -110,6 +113,7 @@ LLM Planner  ──(TaskSpec[])──▶  LangGraph(StateGraph)
 - **Zod**：`zod`（Planner 输出 JSON schema 校验）
 - **dotenv**：自动加载 `.env`
 - **p-retry / p-timeout**：节点内部的重试与超时（避免自己写）
+- **Express**：Web Demo API（含 SSE 流式）
 
 ### 4) 数据契约（你需要“死记硬背”的部分）
 
@@ -157,7 +161,7 @@ LLM Planner  ──(TaskSpec[])──▶  LangGraph(StateGraph)
 - `run_task`：真正执行一个任务（调用对应的 LLM Worker Agent）
 - 条件边（Conditional Edges）：
   - 若全部完成 → `END`
-  - 否则对所有 runnable 任务返回 `Send("run_task", { task })`，LangGraph 负责并发调度
+  - 否则对所有 runnable 任务返回 `Send("run_task", state+task)`，LangGraph 负责并发调度（避免丢失 state 字段）
 
 并发控制：
 
@@ -174,10 +178,11 @@ LLM Planner  ──(TaskSpec[])──▶  LangGraph(StateGraph)
 
 ### 8) 可观测性与可视化（Trace）
 
-- `--trace true`：输出 TraceEvent JSON（可直接喂给前端画时间轴/泳道）
-- `--traceFile trace.json`：落盘 trace
-- `--outputFile report.md`：落盘最终报告（附 raw results）
-- `--viz true`：额外输出一个 CLI 版“简单泳道”
+- Web 模式：通过 SSE 流式推送 `plan/task_result/trace/final`，前端实时渲染
+- CLI 模式：
+  - `--traceFile trace.json`：落盘 trace
+  - `--outputFile report.md`：落盘最终报告（附 raw results）
+  - `--viz true`：额外输出一个 CLI 版“简单泳道”
 
 进阶（后续可做）：
 
@@ -186,8 +191,17 @@ LLM Planner  ──(TaskSpec[])──▶  LangGraph(StateGraph)
 ### 9) 配置与安全
 
 - 复制 `.env.example` → `.env`，填 `ANTHROPIC_API_KEY/ANTHROPIC_MODEL` 等
+- 如网关使用 Bearer：填 `ANTHROPIC_AUTH_TOKEN`
 - `.env` 已在 `.gitignore` 中忽略，避免密钥提交
 - CLI 参数可覆盖环境变量（便于 CI 或多环境切换）
+
+### 9.1 Web Demo（流式）实现说明
+
+- 服务端入口：`src/server.ts`
+  - `POST /api/run/stream`：SSE 流式输出（`meta/phase/plan/task_result/trace/final/done`）
+  - 静态页面：`public/`
+- 前端入口：`public/app.js`
+  - 使用 `fetch + ReadableStream` 解析 SSE，边收到事件边更新 UI
 
 ### 10) 扩展点（从 Demo 到“能落地”）
 
