@@ -58,6 +58,8 @@ export async function runWithLangGraph(params: {
   agents: Agent[];
   config: OrchestratorConfig;
   shared?: Record<string, unknown>;
+  onTraceEvent?: (event: TraceEvent) => void;
+  onTaskResult?: (result: TaskResult) => void;
 }): Promise<{ final: string; results: TaskResult[]; trace: TraceEvent[] }> {
   validateTasksOrThrow(params.tasks);
   const byId = new Map(params.tasks.map((t) => [t.id, t] as const));
@@ -114,6 +116,18 @@ export async function runWithLangGraph(params: {
       };
     });
 
+    for (const r of blockedResults) params.onTaskResult?.(r);
+    for (const t of failTasks) {
+      const ev: TraceEvent = {
+        type: "task_failed",
+        at: now,
+        taskId: t.id,
+        assignee: t.assignee,
+        error: blocked.length > 0 ? "blocked" : "deadlock",
+      };
+      params.onTraceEvent?.(ev);
+    }
+
     return {
       results: blockedResults,
       completed: failTasks.map((t) => t.id),
@@ -167,7 +181,9 @@ export async function runWithLangGraph(params: {
     const agent = agentById.get(task.assignee);
     const startedAt = Date.now();
 
-    const baseTrace: TraceEvent[] = [{ type: "task_started", at: startedAt, taskId: task.id, assignee: task.assignee }];
+    const startedEv: TraceEvent = { type: "task_started", at: startedAt, taskId: task.id, assignee: task.assignee };
+    params.onTraceEvent?.(startedEv);
+    const baseTrace: TraceEvent[] = [startedEv];
 
     if (!agent) {
       const finishedAt = Date.now();
@@ -219,13 +235,21 @@ export async function runWithLangGraph(params: {
         startedAt,
         finishedAt,
       };
+      params.onTaskResult?.(result);
 
+      const succEv: TraceEvent = {
+        type: "task_succeeded",
+        at: finishedAt,
+        taskId: task.id,
+        assignee: task.assignee,
+        outputPreview: result.output.slice(0, 120),
+        attempt: out.attempt,
+      };
+      params.onTraceEvent?.(succEv);
       return {
         results: [result],
         completed: [task.id],
-        trace: baseTrace.concat([
-          { type: "task_succeeded", at: finishedAt, taskId: task.id, assignee: task.assignee, outputPreview: result.output.slice(0, 120), attempt: out.attempt },
-        ]),
+        trace: baseTrace.concat([succEv]),
       };
     } catch (err) {
       const finishedAt = Date.now();
@@ -240,13 +264,15 @@ export async function runWithLangGraph(params: {
         output: "",
         error: stack ? `${message}\n\n---\n${stack}` : message,
       };
+      params.onTaskResult?.(result);
+
+      const failEv: TraceEvent = { type: "task_failed", at: finishedAt, taskId: task.id, assignee: task.assignee, error: message };
+      params.onTraceEvent?.(failEv);
 
       return {
         results: [result],
         completed: [task.id],
-        trace: baseTrace.concat([
-          { type: "task_failed", at: finishedAt, taskId: task.id, assignee: task.assignee, error: message },
-        ]),
+        trace: baseTrace.concat([failEv]),
       };
     }
   };
@@ -265,17 +291,15 @@ export async function runWithLangGraph(params: {
     task: undefined,
     results: [],
     completed: [],
-    trace: [
-      {
-        type: "orchestrator_started",
-        at: Date.now(),
-        goal: params.goal,
-        config: params.config,
-      },
-      { type: "plan_created", at: Date.now(), tasks: params.tasks },
-    ],
+    trace: [],
     shared: params.shared ?? {},
   };
+
+  const started: TraceEvent = { type: "orchestrator_started", at: Date.now(), goal: params.goal, config: params.config };
+  const planned: TraceEvent = { type: "plan_created", at: Date.now(), tasks: params.tasks };
+  params.onTraceEvent?.(started);
+  params.onTraceEvent?.(planned);
+  initial.trace = [started, planned];
 
   const finalState = await graph.invoke(initial, {
     // Let the LangGraph runtime handle concurrency.
@@ -283,7 +307,9 @@ export async function runWithLangGraph(params: {
   } as any);
 
   const final = assembleFinal(params.goal, params.tasks, finalState.results);
-  const trace = finalState.trace.concat([{ type: "final_assembled", at: Date.now(), summary: final.slice(0, 160) }]);
+  const assembled: TraceEvent = { type: "final_assembled", at: Date.now(), summary: final.slice(0, 160) };
+  params.onTraceEvent?.(assembled);
+  const trace = finalState.trace.concat([assembled]);
   return { final, results: finalState.results, trace };
 }
 

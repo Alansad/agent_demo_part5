@@ -48,9 +48,9 @@ npm run web
 
 然后打开终端输出的 `http://localhost:8787`，在页面里点击“运行”即可看到：
 - Planner 生成的任务计划（Plan）
-- 多 Agent 结果泳道时间轴
+- 多 Agent 结果泳道时间轴（实时更新）
 - 最终报告（Final）
-- Trace（调试事件流）
+- Trace（调试事件流，实时更新）
 
 排查网关兼容性（推荐先打开）：
 

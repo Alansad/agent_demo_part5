@@ -200,6 +200,70 @@ async function apiPost(path, body) {
   return data;
 }
 
+async function* sseFromFetch(url, body) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `${res.status}`);
+  }
+  if (!res.body) throw new Error("Streaming not supported in this browser");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventName = "message";
+  let dataLines = [];
+
+  const flushEvent = () => {
+    if (dataLines.length === 0) return null;
+    const dataStr = dataLines.join("\n");
+    dataLines = [];
+    let data;
+    try {
+      data = JSON.parse(dataStr);
+    } catch {
+      data = dataStr;
+    }
+    return { event: eventName, data };
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    while (true) {
+      const idx = buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = buffer.slice(0, idx).replace(/\r$/, "");
+      buffer = buffer.slice(idx + 1);
+
+      if (line === "") {
+        const ev = flushEvent();
+        if (ev) yield ev;
+        eventName = "message";
+        continue;
+      }
+      if (line.startsWith(":")) continue; // comment/ping
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim() || "message";
+        continue;
+      }
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trimStart());
+        continue;
+      }
+    }
+  }
+
+  const ev = flushEvent();
+  if (ev) yield ev;
+}
+
 async function boot() {
   try {
     await apiGet("/api/health");
@@ -230,12 +294,54 @@ async function boot() {
         debug: $("debug").value === "true",
       };
 
-      const data = await apiPost("/api/run", body);
-      renderPlan(data.plan);
-      renderTimeline(data.results);
-      renderFinal(data.final);
-      renderTrace(data.trace);
-      setStatus("完成");
+      clearOutput();
+      renderFinal("（运行中…）");
+      renderTrace([]);
+
+      const liveResults = [];
+      const liveTrace = [];
+      const seenResult = new Set();
+
+      for await (const ev of sseFromFetch("/api/run/stream", body)) {
+        if (ev.event === "phase") {
+          setStatus(`阶段：${ev.data?.name || ""}…`);
+          continue;
+        }
+        if (ev.event === "plan") {
+          renderPlan(ev.data);
+          continue;
+        }
+        if (ev.event === "task_result") {
+          const key = `${ev.data.taskId}:${ev.data.assignee}`;
+          if (!seenResult.has(key)) {
+            seenResult.add(key);
+            liveResults.push(ev.data);
+            renderTimeline(liveResults);
+          }
+          continue;
+        }
+        if (ev.event === "trace") {
+          liveTrace.push(ev.data);
+          renderTrace(liveTrace);
+          continue;
+        }
+        if (ev.event === "final") {
+          renderFinal(ev.data?.final || "");
+          // ensure timeline matches final results
+          if (Array.isArray(ev.data?.results)) renderTimeline(ev.data.results);
+          if (Array.isArray(ev.data?.trace)) renderTrace(ev.data.trace);
+          continue;
+        }
+        if (ev.event === "done") {
+          setStatus("完成");
+          continue;
+        }
+        if (ev.event === "error") {
+          const msg = ev.data?.stack ? `${ev.data.error}\n\n${ev.data.stack}` : ev.data?.error || "unknown error";
+          setStatus(`失败：${msg}`);
+          break;
+        }
+      }
     } catch (e) {
       setStatus(`失败：${e?.message || e}`);
     } finally {

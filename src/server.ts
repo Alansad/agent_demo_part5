@@ -116,6 +116,124 @@ app.post("/api/run", async (req: Request, res: Response) => {
   }
 });
 
+function sseWrite(res: Response, event: string, data: unknown) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+app.post("/api/run/stream", async (req: Request, res: Response) => {
+  res.setHeader("content-type", "text/event-stream; charset=utf-8");
+  res.setHeader("cache-control", "no-cache, no-transform");
+  res.setHeader("connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const startedAt = Date.now();
+  const ping = setInterval(() => {
+    res.write(": ping\n\n");
+  }, 15_000);
+
+  try {
+    const parsed = RunRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      sseWrite(res, "error", { error: "Invalid request", details: parsed.error.flatten() });
+      res.end();
+      return;
+    }
+
+    const body = parsed.data;
+    const scenarioId = body.scenario ?? "frontend-agent-mvp";
+    const scenario = findScenario(scenarioId);
+    if (!scenario) {
+      sseWrite(res, "error", { error: `Unknown scenario: ${scenarioId}`, available: SCENARIOS.map((s) => s.id) });
+      res.end();
+      return;
+    }
+
+    const goal = (body.goal?.trim() ? body.goal.trim() : scenario.title) ?? scenario.title;
+    const maxTasks = body.maxTasks ?? 8;
+
+    sseWrite(res, "meta", {
+      scenario: { id: scenario.id, title: scenario.title },
+      goal,
+      startedAt,
+    });
+
+    let apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+    let authToken = process.env.ANTHROPIC_AUTH_TOKEN ?? "";
+    const baseUrl = process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
+    const model = requiredEnv("ANTHROPIC_MODEL");
+
+    if (!authToken && apiKey && /volces\\.com/i.test(baseUrl)) {
+      authToken = apiKey;
+      apiKey = "";
+    }
+    if (!apiKey && !authToken) {
+      sseWrite(res, "error", { error: "Missing ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN for bearer auth) in .env" });
+      res.end();
+      return;
+    }
+
+    const llmCfg: AnthropicConfig = {
+      apiKey,
+      authToken,
+      baseUrl,
+      model,
+      maxTokens: 1800,
+      timeoutMs: 120_000,
+      debug: body.debug ?? (process.env.LLM_DEBUG ?? "false") === "true",
+    };
+    const llm = new AnthropicClient(llmCfg);
+
+    sseWrite(res, "phase", { name: "planning" });
+    const planner = new LlmPlanner(llm);
+    const plan = await planner.createPlan({ goal, context: scenario.prompt, maxTasks });
+    sseWrite(res, "plan", plan);
+
+    const config: OrchestratorConfig = {
+      concurrency: body.concurrency ?? 3,
+      taskTimeoutMs: body.timeoutMs ?? 60_000,
+      retry: {
+        maxAttempts: body.maxAttempts ?? 2,
+        backoffMs: body.backoffMs ?? 800,
+      },
+      trace: { enabled: true },
+    };
+    sseWrite(res, "config", config);
+    sseWrite(res, "phase", { name: "running" });
+
+    const agents = createDefaultRoleAgents(llm);
+    const taskResults: any[] = [];
+    const traceEvents: any[] = [];
+
+    const { final, results, trace } = await runWithLangGraph({
+      goal,
+      tasks: plan.tasks,
+      agents,
+      config,
+      onTaskResult: (r) => {
+        taskResults.push(r);
+        sseWrite(res, "task_result", r);
+      },
+      onTraceEvent: (e) => {
+        traceEvents.push(e);
+        sseWrite(res, "trace", e);
+      },
+    });
+
+    // Ensure final arrays are sent too (in case client wants full payload)
+    sseWrite(res, "final", { final, results, trace });
+    sseWrite(res, "done", { finishedAt: Date.now(), durationMs: Date.now() - startedAt });
+    res.end();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error && err.stack ? err.stack : undefined;
+    sseWrite(res, "error", { error: message, stack });
+    res.end();
+  } finally {
+    clearInterval(ping);
+  }
+});
+
 // Static demo UI
 app.use("/", express.static("public"));
 
