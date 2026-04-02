@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createDefaultRoleAgents, LlmPlanner } from "./agents/llmAgents.js";
-import { MultiAgentOrchestrator } from "./orchestrator/orchestrator.js";
+import { runWithLangGraph } from "./orchestrator/langgraph.js";
 import type { OrchestratorConfig } from "./types.js";
 import { writeFile } from "node:fs/promises";
 import { AnthropicClient, type AnthropicConfig } from "./llm/anthropic.js";
@@ -54,7 +54,6 @@ const maxTasks = toInt(kv.get("maxTasks"), 8);
 const apiKey = kv.get("apiKey") ?? process.env.ANTHROPIC_API_KEY ?? "";
 const baseUrl = kv.get("apiUrl") ?? process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
 const model = kv.get("model") ?? process.env.ANTHROPIC_MODEL ?? "";
-const anthropicVersion = kv.get("anthropicVersion") ?? process.env.ANTHROPIC_VERSION ?? "2023-06-01";
 const maxTokens = toInt(kv.get("maxTokens"), 1800);
 const llmTimeoutMs = toInt(kv.get("llmTimeoutMs"), 120_000);
 
@@ -75,7 +74,6 @@ const llmCfg: AnthropicConfig = {
   apiKey,
   baseUrl,
   model,
-  anthropicVersion,
   maxTokens,
   timeoutMs: llmTimeoutMs,
 };
@@ -86,8 +84,8 @@ const context = scenario?.prompt;
 const plan = await planner.createPlan({ goal, context, maxTasks });
 const tasks = plan.tasks;
 
-const orchestrator = new MultiAgentOrchestrator(createDefaultRoleAgents(llm), config);
-const { final, results } = await orchestrator.run(goal, tasks);
+const agents = createDefaultRoleAgents(llm);
+const { final, results, trace } = await runWithLangGraph({ goal, tasks, agents, config });
 
 console.log(final);
 
@@ -110,11 +108,11 @@ if (viz) {
 
 if (config.trace.enabled) {
   console.log("\n---\n# TraceEvent（用于前端可视化）");
-  console.log(JSON.stringify(orchestrator.getTrace(), null, 2));
+  console.log(JSON.stringify(trace, null, 2));
 }
 
 if (traceFile) {
-  await writeFile(traceFile, JSON.stringify(orchestrator.getTrace(), null, 2), "utf8");
+  await writeFile(traceFile, JSON.stringify(trace, null, 2), "utf8");
   console.error(`\n[trace] written to ${traceFile}`);
 }
 

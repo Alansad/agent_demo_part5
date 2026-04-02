@@ -50,14 +50,14 @@ export type TraceEvent =
       at: number;
       taskId: string;
       assignee: AgentId;
-      attempt: number;
+      attempt?: number;
     }
   | {
       type: "task_succeeded";
       at: number;
       taskId: string;
       assignee: AgentId;
-      attempt: number;
+      attempt?: number;
       outputPreview: string;
     }
   | {
@@ -65,7 +65,7 @@ export type TraceEvent =
       at: number;
       taskId: string;
       assignee: AgentId;
-      attempt: number;
+      attempt?: number;
       error: string;
     }
   | {
@@ -73,4 +73,3 @@ export type TraceEvent =
       at: number;
       summary: string;
     };
-

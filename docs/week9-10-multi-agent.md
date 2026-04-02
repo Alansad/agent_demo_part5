@@ -27,7 +27,7 @@
 
 ## 3. 任务分发：调度器需要哪些能力？
 
-最小可用调度器（本仓库 `src/orchestrator/orchestrator.ts`）实现了：
+最小可用调度器/编排器（本仓库 `src/orchestrator/langgraph.ts`）实现了：
 
 1) 依赖控制：任务 B dependsOn A → A 成功前 B 不启动  
 2) 并发控制：`concurrency` 决定同时跑几个任务  
@@ -46,20 +46,25 @@
 - **可靠性策略**：并发、超时、重试、死锁保护
 - **可观测性**：TraceEvent 可落盘，前端可视化复盘
 
+本仓库的实现选择：
+
+- 编排/调度：`@langchain/langgraph`（StateGraph + Send 做 dispatch）
+- 重试/超时：节点内部使用 `p-retry` / `p-timeout`（避免手写）
+
 ## 3.1 在代码里分别对应哪里？
 
 - 主Agent（规划器）：`src/agents/llmAgents.ts` 里的 `LlmPlanner.createPlan()`
 - 从Agent（执行器）：`src/agents/llmAgents.ts` 里的 `LlmWorkerAgent`
 - 主控汇总Agent（可选）：同上（`agent_manager` 角色）
-- 调度器/编排器：`src/orchestrator/orchestrator.ts` 的 `MultiAgentOrchestrator.run()`
+- 调度器/编排器：`src/orchestrator/langgraph.ts` 的 `runWithLangGraph()`
 - 数据契约：`src/types.ts`（TaskSpec/TaskResult/TraceEvent）
 - CLI 入口：`src/index.ts`（参数、落盘、简单泳道）
 
 ## 3.3 真实 LLM（Anthropic）怎么接入？
 
-本仓库用 Anthropic Messages API（HTTP）直连：
+本仓库用 Anthropic 官方 SDK 调用 Messages API：
 
-- 客户端：`src/llm/anthropic.ts`
+- 客户端：`src/llm/anthropic.ts`（`import Anthropic from "@anthropic-ai/sdk"`）
 - 你需要提供：
   - `ANTHROPIC_API_KEY`
   - `ANTHROPIC_MODEL`
