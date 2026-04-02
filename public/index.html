@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multi-Agent Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div>
+          <h1>Multi-Agent Demo</h1>
+          <p class="muted">Anthropic SDK + LangGraph 编排：规划 → 分发 → 并发执行 → 汇总/可视化</p>
+        </div>
+        <div class="right">
+          <span class="pill" id="health">API: checking…</span>
+        </div>
+      </header>
+
+      <section class="card">
+        <div class="grid">
+          <div>
+            <label>场景</label>
+            <select id="scenario"></select>
+          </div>
+          <div>
+            <label>并发</label>
+            <input id="concurrency" type="number" min="1" max="10" value="3" />
+          </div>
+          <div>
+            <label>任务上限</label>
+            <input id="maxTasks" type="number" min="2" max="20" value="8" />
+          </div>
+          <div>
+            <label>超时 (ms)</label>
+            <input id="timeoutMs" type="number" min="1000" max="300000" value="60000" />
+          </div>
+          <div>
+            <label>最大重试</label>
+            <input id="maxAttempts" type="number" min="1" max="5" value="2" />
+          </div>
+          <div>
+            <label>退避 (ms)</label>
+            <input id="backoffMs" type="number" min="0" max="30000" value="800" />
+          </div>
+          <div>
+            <label>调试日志</label>
+            <select id="debug">
+              <option value="false">关闭</option>
+              <option value="true">开启</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="grow">
+            <label>目标（可选）</label>
+            <textarea id="goal" rows="3" placeholder="留空则使用场景默认目标"></textarea>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="run" class="primary">运行</button>
+          <button id="reset" class="ghost">清空输出</button>
+          <span class="muted" id="status"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>任务计划（Plan）</h2>
+        <div id="plan"></div>
+      </section>
+
+      <section class="card">
+        <h2>时间轴（泳道）</h2>
+        <div id="timeline"></div>
+      </section>
+
+      <section class="card">
+        <div class="split">
+          <h2>最终报告（Final）</h2>
+          <div class="tools">
+            <button id="copyFinal" class="ghost">复制</button>
+          </div>
+        </div>
+        <div id="final" class="md"></div>
+      </section>
+
+      <section class="card">
+        <div class="split">
+          <h2>Trace（调试）</h2>
+          <div class="tools">
+            <button id="toggleTrace" class="ghost">展开/收起</button>
+          </div>
+        </div>
+        <pre id="trace" class="pre collapsed"></pre>
+      </section>
+
+      <footer class="footer muted">
+        提示：如果页面提示缺少 `ANTHROPIC_API_KEY/ANTHROPIC_MODEL`，请先复制 `.env.example` 为 `.env` 并配置。
+      </footer>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

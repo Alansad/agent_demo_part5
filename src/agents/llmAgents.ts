@@ -131,7 +131,8 @@ export class LlmWorkerAgent implements Agent {
   ) {}
 
   async run(task: TaskSpec, ctx: AgentContext): Promise<Omit<TaskResult, "startedAt" | "finishedAt">> {
-    const contextBrief = ctx.resultsSoFar
+    const resultsSoFar = Array.isArray(ctx.resultsSoFar) ? ctx.resultsSoFar : [];
+    const contextBrief = resultsSoFar
       .map((r) => {
         const head = `${r.assignee}/${r.taskId}/${r.status}`;
         const body = r.output ? r.output.slice(0, 800) : "";
@@ -226,4 +227,3 @@ export function createDefaultRoleAgents(llm: AnthropicClient): Agent[] {
     ),
   ];
 }
-

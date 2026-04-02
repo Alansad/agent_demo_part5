@@ -27,7 +27,7 @@ function toInt(value: string | undefined, fallback: number): number {
 
 const kv = parseArgs(process.argv);
 const listScenarios = (kv.get("listScenarios") ?? "false") === "true";
-const scenarioId = kv.get("scenario");
+const scenarioId = kv.get("scenario") ?? "frontend-agent-mvp";
 const scenario = findScenario(scenarioId);
 const goal =
   kv.get("goal") ??
@@ -51,11 +51,13 @@ const outputFile = kv.get("outputFile"); // e.g. report.md
 const viz = (kv.get("viz") ?? "false") === "true";
 const maxTasks = toInt(kv.get("maxTasks"), 8);
 
-const apiKey = kv.get("apiKey") ?? process.env.ANTHROPIC_API_KEY ?? "";
+let apiKey = kv.get("apiKey") ?? process.env.ANTHROPIC_API_KEY ?? "";
+let authToken = process.env.ANTHROPIC_AUTH_TOKEN ?? "";
 const baseUrl = kv.get("apiUrl") ?? process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com";
 const model = kv.get("model") ?? process.env.ANTHROPIC_MODEL ?? "";
 const maxTokens = toInt(kv.get("maxTokens"), 1800);
 const llmTimeoutMs = toInt(kv.get("llmTimeoutMs"), 120_000);
+const debug = (kv.get("debug") ?? process.env.LLM_DEBUG ?? "false") === "true";
 
 if (listScenarios) {
   console.log("Available scenarios:");
@@ -67,15 +69,24 @@ if (!scenario && scenarioId) {
   console.error(`[warn] unknown scenario "${scenarioId}". Available: ${SCENARIOS.map((s) => s.id).join(", ")}`);
 }
 
-if (!apiKey) throw new Error("Missing apiKey. Pass --apiKey or set ANTHROPIC_API_KEY");
+// Many third-party "Anthropic-compatible" gateways (e.g. Volcengine Ark) use Bearer auth.
+// Auto-detect common cases to avoid extra config knobs.
+if (!authToken && apiKey && /volces\\.com/i.test(baseUrl)) {
+  authToken = apiKey;
+  apiKey = "";
+}
+
+if (!apiKey && !authToken) throw new Error("Missing credentials. Set ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN for bearer auth)");
 if (!model) throw new Error("Missing model. Pass --model or set ANTHROPIC_MODEL");
 
 const llmCfg: AnthropicConfig = {
   apiKey,
+  authToken,
   baseUrl,
   model,
   maxTokens,
   timeoutMs: llmTimeoutMs,
+  debug,
 };
 const llm = new AnthropicClient(llmCfg);
 

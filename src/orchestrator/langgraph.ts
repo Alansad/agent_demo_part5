@@ -66,31 +66,64 @@ export async function runWithLangGraph(params: {
   const dispatch = async (state: State): Promise<Update> => {
     const completed = new Set(state.completed);
     const failed = new Set(state.results.filter((r) => r.status === "failed").map((r) => r.taskId));
+    const succeeded = new Set(state.results.filter((r) => r.status === "succeeded").map((r) => r.taskId));
 
     const blocked: TaskSpec[] = [];
+    const runnable: TaskSpec[] = [];
+    const pending: TaskSpec[] = [];
     for (const task of state.tasks) {
       if (completed.has(task.id)) continue;
       const deps = task.dependsOn ?? [];
-      if (deps.some((d) => failed.has(d))) blocked.push(task);
+      if (deps.some((d) => failed.has(d))) {
+        blocked.push(task);
+        continue;
+      }
+      if (deps.length === 0 || deps.every((d) => succeeded.has(d))) {
+        runnable.push(task);
+        continue;
+      }
+      pending.push(task);
     }
 
-    if (blocked.length === 0) return {};
+    if (blocked.length === 0 && runnable.length > 0) return {};
 
     const now = Date.now();
-    const blockedResults: TaskResult[] = blocked.map((task) => ({
-      taskId: task.id,
-      assignee: task.assignee,
-      status: "failed",
-      startedAt: now,
-      finishedAt: now,
-      output: "",
-      error: `Blocked by failed dependency: ${(task.dependsOn ?? []).join(", ")}`,
-    }));
+    const failTasks = blocked.length > 0 ? blocked : pending;
+    const errorPrefix =
+      blocked.length > 0
+        ? "Blocked by failed dependency"
+        : "Deadlock: no runnable tasks (unmet dependencies)";
+
+    const blockedResults: TaskResult[] = failTasks.map((task) => {
+      const deps = task.dependsOn ?? [];
+      const unmet = deps.filter((d) => !succeeded.has(d));
+      const detail =
+        blocked.length > 0
+          ? deps.join(", ")
+          : unmet.length > 0
+            ? `unmet deps: ${unmet.join(", ")}`
+            : "unknown";
+      return {
+        taskId: task.id,
+        assignee: task.assignee,
+        status: "failed",
+        startedAt: now,
+        finishedAt: now,
+        output: "",
+        error: `${errorPrefix}: ${detail}`,
+      };
+    });
 
     return {
       results: blockedResults,
-      completed: blocked.map((t) => t.id),
-      trace: blocked.map((t) => ({ type: "task_failed", at: now, taskId: t.id, assignee: t.assignee, error: "blocked" })),
+      completed: failTasks.map((t) => t.id),
+      trace: failTasks.map((t) => ({
+        type: "task_failed",
+        at: now,
+        taskId: t.id,
+        assignee: t.assignee,
+        error: blocked.length > 0 ? "blocked" : "deadlock",
+      })),
     };
   };
 
@@ -108,11 +141,23 @@ export async function runWithLangGraph(params: {
       return deps.every((d) => succeeded.has(d));
     });
 
-    if (runnable.length === 0) {
-      throw new Error("No runnable tasks remaining (unexpected). Check plan validation.");
-    }
+    if (runnable.length === 0) return "dispatch";
 
-    return runnable.map((task) => new Send("run_task", { task }));
+    // IMPORTANT:
+    // LangGraph `Send` allows invoking a node with a custom state that may differ from the core graph state.
+    // To avoid losing fields (e.g. results/goal) when the node runs, pass the full state + the task.
+    return runnable.map(
+      (task) =>
+        new Send("run_task", {
+          goal: state.goal,
+          tasks: state.tasks,
+          task,
+          shared: state.shared,
+          results: state.results,
+          completed: state.completed,
+          trace: state.trace,
+        }),
+    );
   };
 
   const runTask = async (state: State): Promise<Update> => {
@@ -185,6 +230,7 @@ export async function runWithLangGraph(params: {
     } catch (err) {
       const finishedAt = Date.now();
       const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error && err.stack ? err.stack : undefined;
       const result: TaskResult = {
         taskId: task.id,
         assignee: task.assignee,
@@ -192,7 +238,7 @@ export async function runWithLangGraph(params: {
         startedAt,
         finishedAt,
         output: "",
-        error: message,
+        error: stack ? `${message}\n\n---\n${stack}` : message,
       };
 
       return {

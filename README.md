@@ -16,38 +16,50 @@
 npm i
 ```
 
-2) 配置 Anthropic（任选其一）
-
-- 环境变量：
-  - `ANTHROPIC_API_KEY`
-  - `ANTHROPIC_MODEL`（例如 `claude-3-5-sonnet-latest`，以你实际可用为准）
-  - 可选：`ANTHROPIC_BASE_URL`（自建网关/代理时）
-
-也可以直接复制 `.env.example` 为 `.env` 并填入配置（`.env` 已在 `.gitignore` 中忽略）。
-
-3) 跑 Demo（选择一个真实场景）
+2) 配置环境变量（推荐用 `.env`）
 
 ```bash
-npm run dev -- --listScenarios true
-npm run dev -- --scenario frontend-agent-mvp --concurrency 2 --trace true
+cp .env.example .env
+# 然后编辑 .env，填入：
+# - ANTHROPIC_API_KEY
+# - ANTHROPIC_MODEL
+# （可选）ANTHROPIC_BASE_URL
 ```
 
-你会看到：
-- 任务执行汇总（成功/失败、耗时）
-- 每个 Agent 的输出
-- TraceEvent JSON（可直接给前端画时间轴/泳道图）
-
-常用参数：
+3) CLI 运行（默认场景：`frontend-agent-mvp`）
 
 ```bash
-# 覆盖 LLM 配置（也可用环境变量）
-npm run dev -- --apiKey "$ANTHROPIC_API_KEY" --apiUrl "https://api.anthropic.com" --model "$ANTHROPIC_MODEL"
+npm run dev
+```
 
-# 控制计划规模与并发
-npm run dev -- --maxTasks 8 --concurrency 3
+想换场景（可选）：
 
-# 把 trace 和报告写入文件，便于前端可视化
-npm run dev -- --traceFile trace.json --outputFile report.md --viz true
+```bash
+npm run dev -- --scenario ecommerce-feature
+npm run dev -- --scenario design-system
+npm run dev -- --listScenarios true
+```
+
+4) 前端页面演示（推荐）
+
+```bash
+npm run web
+```
+
+然后打开终端输出的 `http://localhost:8787`，在页面里点击“运行”即可看到：
+- Planner 生成的任务计划（Plan）
+- 多 Agent 结果泳道时间轴
+- 最终报告（Final）
+- Trace（调试事件流）
+
+排查网关兼容性（推荐先打开）：
+
+```bash
+# CLI 模式开启调试日志
+npm run dev -- --debug true
+
+# 或者用环境变量
+LLM_DEBUG=true npm run dev
 ```
 
 ## 技术方案（详细）
