@@ -8,6 +8,7 @@ const AgentIdSchema = z.enum([
   "agent_product",
   "agent_frontend",
   "agent_qa",
+  "agent_security",
   "agent_writer",
   "agent_manager",
 ]);
@@ -53,9 +54,9 @@ export class LlmPlanner {
       "- agent_product（产品）",
       "- agent_frontend（前端工程）",
       "- agent_qa（测试）",
+      "- agent_security（安全审查）",
       "- agent_writer（文档/教学）",
       "- agent_manager（主控汇总）",
-      "",
       "约束：",
       `- tasks 数量 <= ${params.maxTasks}`,
       "- 任务要真实可执行，且包含明确产出物（deliverable）。",
@@ -217,6 +218,16 @@ export function createDefaultRoleAgents(llm: AnthropicClient): Agent[] {
       ].join("\n"),
     ),
     new LlmWorkerAgent(
+        "agent_security",
+        "安全审查",
+        llm,
+        [
+          "你是安全审查负责人。",
+          "交付：安全风险分析、攻击面评估、加固建议、监控与响应建议。",
+          "优先列出高风险点和易被攻击的环节，给出具体可执行的加固措施。",
+        ].join("\n"),
+    ),
+    new LlmWorkerAgent(
       "agent_writer",
       "文档/教学",
       llm,
@@ -239,3 +250,4 @@ export function createDefaultRoleAgents(llm: AnthropicClient): Agent[] {
     ),
   ];
 }
+
